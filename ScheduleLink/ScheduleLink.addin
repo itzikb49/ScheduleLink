@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>ScheduleLink</Name>
+    <Assembly>ScheduleLink.dll</Assembly>
+    <FullClassName>ScheduleLink.App</FullClassName>
+    <ClientId>B2C3D4E5-F6A7-8901-BCDE-FA2345678901</ClientId>
+    <VendorId>IB-BIM</VendorId>
+    <VendorDescription>IB-BIM, Itzik - BIM Developer</VendorDescription>
+  </AddIn>
+</RevitAddIns>

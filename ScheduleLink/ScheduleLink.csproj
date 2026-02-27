@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>ScheduleLink</RootNamespace>
+    <AssemblyName>ScheduleLink</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <Deterministic>true</Deterministic>
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <!-- References -->
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Numerics" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="RevitAPI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2023\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2023\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <!-- NuGet Packages -->
+  <ItemGroup>
+    <Reference Include="EPPlus">
+      <HintPath>..\packages\EPPlus.4.5.3.3\lib\net40\EPPlus.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+    <None Include="ScheduleLink.addin">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="PostBuild.bat" />
+  </ItemGroup>
+  <!-- Embedded Resources (icons) -->
+  <!-- Source Files -->
+  <ItemGroup>
+    <Compile Include="App.cs" />
+    <Compile Include="Commands\ScheduleLinkCommand.cs" />
+    <Compile Include="Helpers\RevitCompatibilityExtensions.cs" />
+    <Compile Include="Models\ScheduleDataModels.cs" />
+    <Compile Include="Services\ScheduleReaderService.cs" />
+    <Compile Include="Services\ExcelExportService.cs" />
+    <Compile Include="Services\ExcelImportService.cs" />
+    <Compile Include="Views\MainDialog.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Schedule_1_16.png" />
+    <EmbeddedResource Include="Resources\Schedule_1_32.png" />
+  </ItemGroup>
+  <!-- Post-build -->
+  <PropertyGroup>
+    <PostBuildEvent>echo === ScheduleLink Post-Build Copy ===
+echo.
+echo --- Revit 2023 ---
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\bin\Debug\ScheduleLink.dll" "C:\ProgramData\Autodesk\Revit\Addins\2023\ScheduleLink.dll"
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\ScheduleLink.addin" "C:\ProgramData\Autodesk\Revit\Addins\2023\ScheduleLink.addin"
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\bin\Debug\EPPlus.dll" "C:\ProgramData\Autodesk\Revit\Addins\2023\EPPlus.dll"
+echo.
+echo --- Revit 2024 ---
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\bin\Debug\ScheduleLink.dll" "C:\ProgramData\Autodesk\Revit\Addins\2024\ScheduleLink.dll"
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\ScheduleLink.addin" "C:\ProgramData\Autodesk\Revit\Addins\2024\ScheduleLink.addin"
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\bin\Debug\EPPlus.dll" "C:\ProgramData\Autodesk\Revit\Addins\2024\EPPlus.dll"
+echo.
+echo --- Revit 2025 ---
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\bin\Debug\ScheduleLink.dll" "C:\ProgramData\Autodesk\Revit\Addins\2025\ScheduleLink.dll"
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\ScheduleLink.addin" "C:\ProgramData\Autodesk\Revit\Addins\2025\ScheduleLink.addin"
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\bin\Debug\EPPlus.dll" "C:\ProgramData\Autodesk\Revit\Addins\2025\EPPlus.dll"
+echo.
+echo --- Revit 2026 ---
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\bin\Debug\ScheduleLink.dll" "C:\ProgramData\Autodesk\Revit\Addins\2026\ScheduleLink.dll"
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\ScheduleLink.addin" "C:\ProgramData\Autodesk\Revit\Addins\2026\ScheduleLink.addin"
+copy /Y "C:\Users\user\repos\ScheduleLink\ScheduleLink\bin\Debug\EPPlus.dll" "C:\ProgramData\Autodesk\Revit\Addins\2026\EPPlus.dll"
+echo.
+echo === Post-Build Complete ===</PostBuildEvent>
+    <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
+  </PropertyGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
