@@ -128,8 +128,8 @@ namespace ScheduleLink.Services
 
                 try
                 {
-                    // === PASS 1: Identify unique parameters that need two-pass handling ===
-                    var uniqueParamChanges = new List<UniqueParamChange>();
+                    // === PASS 1: Collect ALL Sheet Number params (changed AND unchanged) ===
+                    var allUniqueParams = new List<UniqueParamChange>();
 
                     for (int rowIdx = 0; rowIdx < excelData.Rows.Count; rowIdx++)
                     {
@@ -143,22 +143,18 @@ namespace ScheduleLink.Services
                             var colInfo = excelData.Columns[c];
                             if (colInfo.IsReadOnly || colInfo.IsCalculated) continue;
 
-                            string newValue = row.Values[c];
                             Parameter param = ScheduleReaderService.FindParameter(elem, colInfo.HeaderText);
                             if (param == null && colInfo.Name != colInfo.HeaderText)
                                 param = ScheduleReaderService.FindParameter(elem, colInfo.Name);
                             if (param == null || param.IsReadOnly) continue;
 
-                            string currentValue = GetParameterDisplayValue(param);
-                            if (currentValue == newValue) continue;
-
-                            // Check if this is a unique parameter (only Sheet Number is blocked by Revit)
                             string paramName = param.Definition.Name;
-                            bool isUnique = paramName == "Sheet Number";
-
-                            if (isUnique)
+                            if (paramName == "Sheet Number")
                             {
-                                uniqueParamChanges.Add(new UniqueParamChange
+                                string currentValue = GetParameterDisplayValue(param);
+                                string newValue = row.Values[c];
+
+                                allUniqueParams.Add(new UniqueParamChange
                                 {
                                     RowIndex = rowIdx,
                                     Element = elem,
@@ -171,13 +167,14 @@ namespace ScheduleLink.Services
                         }
                     }
 
+
                     // Set unique params to temp values first to avoid conflicts
-                    if (uniqueParamChanges.Count > 0)
+                    if (allUniqueParams.Count > 0)
                     {
-                        Logger.Info(Logger.LogCategory.Import, "Pass 1: Setting " + uniqueParamChanges.Count + " unique params to temp values");
-                        for (int i = 0; i < uniqueParamChanges.Count; i++)
+                        Logger.Info(Logger.LogCategory.Import, "Pass 1: Setting " + allUniqueParams.Count + " unique params to temp values");
+                        for (int i = 0; i < allUniqueParams.Count; i++)
                         {
-                            var change = uniqueParamChanges[i];
+                            var change = allUniqueParams[i];
                             string tempValue = "TEMP_SL_" + i + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
                             try
                             {
@@ -188,24 +185,49 @@ namespace ScheduleLink.Services
                     }
 
                     // === PASS 2: Set unique params to final values ===
-                    if (uniqueParamChanges.Count > 0)
+                    if (allUniqueParams.Count > 0)
                     {
-                        Logger.Info(Logger.LogCategory.Import, "Pass 2: Setting " + uniqueParamChanges.Count + " unique params to final values");
-                        foreach (var change in uniqueParamChanges)
+                        // Detect duplicates in final values BEFORE applying
+                        var valueCounts = new Dictionary<string, int>();
+                        foreach (var change in allUniqueParams)
+                        {
+                            if (!valueCounts.ContainsKey(change.NewValue))
+                                valueCounts[change.NewValue] = 0;
+                            valueCounts[change.NewValue]++;
+                        }
+
+                        Logger.Info(Logger.LogCategory.Import, "Pass 2: Setting " + allUniqueParams.Count + " Sheet Numbers to final values");
+                        foreach (var change in allUniqueParams)
                         {
                             try
                             {
-                                if (SetParameterValue(change.Param, change.NewValue))
-                                    result.UpdatedParams++;
-                                else
+                                // If duplicate detected, restore original value
+                                if (valueCounts[change.NewValue] > 1)
                                 {
+                                    SetParameterValue(change.Param, change.CurrentValue);
                                     result.FailedParams++;
                                     if (result.Errors.Count < 50)
-                                        result.Errors.Add("Row " + (change.RowIndex + 2) + ": Failed to set '" + change.ColInfo.HeaderText + "' = '" + change.NewValue + "'");
+                                        result.Errors.Add("Row " + (change.RowIndex + 2) + ": Excel value '" + change.NewValue + "' is duplicate → kept Revit value '" + change.CurrentValue + "'");
+                                }
+                                else
+                                {
+                                    if (SetParameterValue(change.Param, change.NewValue))
+                                    {
+                                        if (change.CurrentValue != change.NewValue)
+                                            result.UpdatedParams++;
+                                    }
+                                    else
+                                    {
+                                        SetParameterValue(change.Param, change.CurrentValue);
+                                        result.FailedParams++;
+                                        if (result.Errors.Count < 50)
+                                            result.Errors.Add("Row " + (change.RowIndex + 2) + ": Failed to set '" + change.ColInfo.HeaderText + "' = '" + change.NewValue + "'");
+                                    }
                                 }
                             }
                             catch (Exception ex)
                             {
+                                try { SetParameterValue(change.Param, change.CurrentValue); } catch { }
                                 result.FailedParams++;
                                 if (result.Errors.Count < 50)
                                     result.Errors.Add("Row " + (change.RowIndex + 2) + ": " + change.ColInfo.HeaderText + " - " + ex.Message);
@@ -215,7 +237,7 @@ namespace ScheduleLink.Services
 
                     // === PASS 3: Set all other (non-unique) parameters ===
                     var handledKeys = new HashSet<string>();
-                    foreach (var change in uniqueParamChanges)
+                    foreach (var change in allUniqueParams)
                         handledKeys.Add(change.RowIndex + "_" + change.ColInfo.HeaderText);
 
                     for (int rowIdx = 0; rowIdx < excelData.Rows.Count; rowIdx++)
