@@ -1,3 +1,4 @@
+// MainDialog.cs 
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -217,6 +218,7 @@ namespace ScheduleLink.Views
         {
             string q = (_searchBox.Text ?? "").Trim();
 
+            // If placeholder or empty, show all schedules
             if (string.IsNullOrEmpty(q) || _searchBox.Foreground == Brushes.Gray)
             {
                 PopulateScheduleList(_allSchedules);
@@ -226,12 +228,6 @@ namespace ScheduleLink.Views
                 var filtered = _allSchedules.Where(
                     vs => vs.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
                 PopulateScheduleList(filtered);
-            }
-
-            // Auto-select if only one result
-            if (_scheduleList.Items.Count == 1)
-            {
-                _scheduleList.SelectedIndex = 0;
             }
         }
 
@@ -310,10 +306,14 @@ namespace ScheduleLink.Views
             var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 12, 0) };
             sp.Children.Add(new Border
             {
-                Width = 14, Height = 14, Background = color,
+                Width = 14,
+                Height = 14,
+                Background = color,
                 BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(150, 150, 150)),
-                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2),
-                Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(2),
+                Margin = new Thickness(0, 0, 5, 0),
+                VerticalAlignment = VerticalAlignment.Center
             });
             sp.Children.Add(new TextBlock { Text = text, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
             return sp;
@@ -359,17 +359,22 @@ namespace ScheduleLink.Views
         {
             return new Button
             {
-                Width = width, Height = 36, FontSize = 13, FontWeight = FontWeights.SemiBold,
+                Width = width,
+                Height = 36,
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
                 Content = text,
-                Background = new SolidColorBrush(bg), Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(border), BorderThickness = new Thickness(1),
+                Background = new SolidColorBrush(bg),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(border),
+                BorderThickness = new Thickness(1),
                 Cursor = Cursors.Hand
             };
         }
 
         private void PopulateScheduleList(IEnumerable<ViewSchedule> schedules)
         {
-            _scheduleList.SelectionChanged -= ScheduleList_SelectionChanged;  // Add this
+            _scheduleList.SelectionChanged -= ScheduleList_SelectionChanged;
             _scheduleList.Items.Clear();
             int count = 0;
             foreach (var vs in schedules)
@@ -384,8 +389,8 @@ namespace ScheduleLink.Views
             }
             _countText.Text = count + " schedules found";
             _exportBtn.IsEnabled = false;
-            _scheduleList.SelectedIndex = -1;  // Add this
-            _scheduleList.SelectionChanged += ScheduleList_SelectionChanged;  // Add this
+            _scheduleList.SelectedIndex = -1;
+            _scheduleList.SelectionChanged += ScheduleList_SelectionChanged;
 
             // Clear parameter preview
             _paramPanel.Children.Clear();
@@ -461,8 +466,10 @@ namespace ScheduleLink.Views
 
                     var paramRow = new Border
                     {
-                        Background = bgColor, CornerRadius = new CornerRadius(3),
-                        Margin = new Thickness(2, 2, 2, 2), Padding = new Thickness(8, 5, 8, 5)
+                        Background = bgColor,
+                        CornerRadius = new CornerRadius(3),
+                        Margin = new Thickness(2, 2, 2, 2),
+                        Padding = new Thickness(8, 5, 8, 5)
                     };
 
                     var rowGrid = new System.Windows.Controls.Grid();
@@ -475,9 +482,11 @@ namespace ScheduleLink.Views
 
                     var typeText = new TextBlock
                     {
-                        Text = typeLabel, FontSize = 10,
+                        Text = typeLabel,
+                        FontSize = 10,
                         Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(100, 100, 100)),
-                        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0)
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(8, 0, 0, 0)
                     };
                     System.Windows.Controls.Grid.SetColumn(typeText, 1);
                     rowGrid.Children.Add(typeText);
@@ -495,7 +504,10 @@ namespace ScheduleLink.Views
                 _paramPanel.Children.Add(new TextBlock
                 {
                     Text = "Error reading parameters:\n" + ex.Message,
-                    Foreground = Brushes.Red, FontSize = 11, Margin = new Thickness(8), TextWrapping = TextWrapping.Wrap
+                    Foreground = Brushes.Red,
+                    FontSize = 11,
+                    Margin = new Thickness(8),
+                    TextWrapping = TextWrapping.Wrap
                 });
             }
         }

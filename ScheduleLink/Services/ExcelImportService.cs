@@ -1,3 +1,5 @@
+// ExcelImportService.cs
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -79,122 +81,278 @@ namespace ScheduleLink.Services
             return data;
         }
 
+        // ============================================================
+        // REPLACE the entire ImportToRevit method in ExcelImportService.cs
+        // AND add the two helper classes at the end of the file
+        // (before the last closing } of the namespace)
+        // ============================================================
+
+        // --- METHOD: Replace ImportToRevit ---
+
         public static ImportResult ImportToRevit(Document doc, ScheduleExportData excelData)
         {
             var result = new ImportResult { TotalRows = excelData.Rows.Count };
 
-            // Create progress window
-            var progressWin = new System.Windows.Window
-            {
-                Title = "ScheduleLink - Importing...",
-                Width = 420,
-                Height = 120,
-                WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen,
-                ResizeMode = System.Windows.ResizeMode.NoResize,
-                WindowStyle = System.Windows.WindowStyle.ToolWindow,
-                Topmost = true
-            };
+            Logger.Info(Logger.LogCategory.Import, "ImportToRevit: Starting - Rows=" + excelData.Rows.Count + " Cols=" + excelData.Columns.Count);
 
-            var stack = new System.Windows.Controls.StackPanel { Margin = new System.Windows.Thickness(16) };
-            var statusText = new System.Windows.Controls.TextBlock
+            // --- Validation: check for invalid Element IDs ---
+            int invalidIds = 0;
+            foreach (var row in excelData.Rows)
             {
-                Text = "Preparing import...",
-                FontSize = 13,
-                Margin = new System.Windows.Thickness(0, 0, 0, 8)
-            };
-            var progressBar = new System.Windows.Controls.ProgressBar
+                if (row.ElementId <= 0)
+                    invalidIds++;
+            }
+            if (invalidIds > 0)
             {
-                Height = 22,
-                Minimum = 0,
-                Maximum = excelData.Rows.Count
-            };
-            stack.Children.Add(statusText);
-            stack.Children.Add(progressBar);
-            progressWin.Content = stack;
-            progressWin.Show();
+                Logger.Info(Logger.LogCategory.Import, "ImportToRevit: WARNING - " + invalidIds + " rows with invalid Element IDs");
+                result.Errors.Add(invalidIds + " rows have invalid Element IDs");
+            }
+
+            // --- Validation: warn if read-only columns have changed values ---
+            foreach (var col in excelData.Columns)
+            {
+                if (col.IsReadOnly)
+                    Logger.Info(Logger.LogCategory.Import, "  Column '" + col.HeaderText + "' = Read-only (will skip)");
+            }
 
             using (var tx = new Transaction(doc, "ScheduleLink Import"))
             {
                 tx.Start();
+
+                // Set failure handler to continue on errors
+                var failureHandler = new IgnoreWarningsHandler();
+                failureHandler.Doc = doc;
+                var failOpts = tx.GetFailureHandlingOptions();
+                failOpts.SetFailuresPreprocessor(failureHandler);
+                tx.SetFailureHandlingOptions(failOpts);
+
                 try
                 {
+                    // === PASS 1: Identify unique parameters that need two-pass handling ===
+                    var uniqueParamChanges = new List<UniqueParamChange>();
+
                     for (int rowIdx = 0; rowIdx < excelData.Rows.Count; rowIdx++)
                     {
                         var row = excelData.Rows[rowIdx];
-
-                        // Update progress every 10 rows
-                        if (rowIdx % 10 == 0)
-                        {
-                            progressBar.Value = rowIdx;
-                            statusText.Text = "Importing row " + (rowIdx + 1) + " of " + excelData.Rows.Count + "...";
-                            // Force UI update
-                            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
-                                System.Windows.Threading.DispatcherPriority.Background,
-                                new System.Action(delegate { }));
-                        }
-
                         ElementId eid = row.ElementId.ToElementId();
                         Element elem = doc.GetElement(eid);
-                        if (elem == null)
-                        {
-                            result.ElementsNotFound++;
-                            if (result.Errors.Count < 10)
-                                result.Errors.Add("Element " + row.ElementId + " not found");
-                            continue;
-                        }
+                        if (elem == null) continue;
 
                         for (int c = 0; c < excelData.Columns.Count && c < row.Values.Count; c++)
                         {
                             var colInfo = excelData.Columns[c];
-                            if (colInfo.IsReadOnly || colInfo.IsCalculated)
-                            {
-                                result.SkippedReadOnly++;
-                                continue;
-                            }
+                            if (colInfo.IsReadOnly || colInfo.IsCalculated) continue;
 
                             string newValue = row.Values[c];
-
                             Parameter param = ScheduleReaderService.FindParameter(elem, colInfo.HeaderText);
                             if (param == null && colInfo.Name != colInfo.HeaderText)
                                 param = ScheduleReaderService.FindParameter(elem, colInfo.Name);
-
-                            if (param == null)
-                            {
-                                result.ParamNotFound++;
-                                continue;
-                            }
-
-                            if (param.IsReadOnly)
-                            {
-                                result.SkippedReadOnly++;
-                                continue;
-                            }
+                            if (param == null || param.IsReadOnly) continue;
 
                             string currentValue = GetParameterDisplayValue(param);
-                            if (currentValue == newValue)
-                            {
-                                result.SkippedUnchanged++;
-                                continue;
-                            }
+                            if (currentValue == newValue) continue;
 
-                            if (SetParameterValue(param, newValue))
-                                result.UpdatedParams++;
-                            else
-                                result.FailedParams++;
+                            // Check if this is a unique parameter (only Sheet Number is blocked by Revit)
+                            string paramName = param.Definition.Name;
+                            bool isUnique = paramName == "Sheet Number";
+
+                            if (isUnique)
+                            {
+                                uniqueParamChanges.Add(new UniqueParamChange
+                                {
+                                    RowIndex = rowIdx,
+                                    Element = elem,
+                                    Param = param,
+                                    ColInfo = colInfo,
+                                    NewValue = newValue,
+                                    CurrentValue = currentValue
+                                });
+                            }
                         }
                     }
 
-                    tx.Commit();
+                    // Set unique params to temp values first to avoid conflicts
+                    if (uniqueParamChanges.Count > 0)
+                    {
+                        Logger.Info(Logger.LogCategory.Import, "Pass 1: Setting " + uniqueParamChanges.Count + " unique params to temp values");
+                        for (int i = 0; i < uniqueParamChanges.Count; i++)
+                        {
+                            var change = uniqueParamChanges[i];
+                            string tempValue = "TEMP_SL_" + i + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                            try
+                            {
+                                SetParameterValue(change.Param, tempValue);
+                            }
+                            catch { }
+                        }
+                    }
+
+                    // === PASS 2: Set unique params to final values ===
+                    if (uniqueParamChanges.Count > 0)
+                    {
+                        Logger.Info(Logger.LogCategory.Import, "Pass 2: Setting " + uniqueParamChanges.Count + " unique params to final values");
+                        foreach (var change in uniqueParamChanges)
+                        {
+                            try
+                            {
+                                if (SetParameterValue(change.Param, change.NewValue))
+                                    result.UpdatedParams++;
+                                else
+                                {
+                                    result.FailedParams++;
+                                    if (result.Errors.Count < 50)
+                                        result.Errors.Add("Row " + (change.RowIndex + 2) + ": Failed to set '" + change.ColInfo.HeaderText + "' = '" + change.NewValue + "'");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                result.FailedParams++;
+                                if (result.Errors.Count < 50)
+                                    result.Errors.Add("Row " + (change.RowIndex + 2) + ": " + change.ColInfo.HeaderText + " - " + ex.Message);
+                            }
+                        }
+                    }
+
+                    // === PASS 3: Set all other (non-unique) parameters ===
+                    var handledKeys = new HashSet<string>();
+                    foreach (var change in uniqueParamChanges)
+                        handledKeys.Add(change.RowIndex + "_" + change.ColInfo.HeaderText);
+
+                    for (int rowIdx = 0; rowIdx < excelData.Rows.Count; rowIdx++)
+                    {
+                        var row = excelData.Rows[rowIdx];
+
+                        try
+                        {
+                            ElementId eid = row.ElementId.ToElementId();
+                            Element elem = doc.GetElement(eid);
+                            if (elem == null)
+                            {
+                                result.ElementsNotFound++;
+                                if (result.Errors.Count < 50)
+                                    result.Errors.Add("Row " + (rowIdx + 2) + ": Element " + row.ElementId + " not found");
+                                continue;
+                            }
+
+                            for (int c = 0; c < excelData.Columns.Count && c < row.Values.Count; c++)
+                            {
+                                var colInfo = excelData.Columns[c];
+                                if (colInfo.IsReadOnly || colInfo.IsCalculated)
+                                {
+                                    result.SkippedReadOnly++;
+                                    continue;
+                                }
+
+                                // Skip if already handled as unique param
+                                string key = rowIdx + "_" + colInfo.HeaderText;
+                                if (handledKeys.Contains(key))
+                                    continue;
+
+                                string newValue = row.Values[c];
+
+                                Parameter param = ScheduleReaderService.FindParameter(elem, colInfo.HeaderText);
+                                if (param == null && colInfo.Name != colInfo.HeaderText)
+                                    param = ScheduleReaderService.FindParameter(elem, colInfo.Name);
+
+                                if (param == null)
+                                {
+                                    result.ParamNotFound++;
+                                    continue;
+                                }
+
+                                if (param.IsReadOnly)
+                                {
+                                    result.SkippedReadOnly++;
+                                    continue;
+                                }
+
+                                string currentValue = GetParameterDisplayValue(param);
+                                if (currentValue == newValue)
+                                {
+                                    result.SkippedUnchanged++;
+                                    continue;
+                                }
+
+                                try
+                                {
+                                    if (SetParameterValue(param, newValue))
+                                        result.UpdatedParams++;
+                                    else
+                                    {
+                                        result.FailedParams++;
+                                        if (result.Errors.Count < 50)
+                                            result.Errors.Add("Row " + (rowIdx + 2) + ": Failed to set '" + colInfo.HeaderText + "' = '" + newValue + "'");
+                                    }
+                                }
+                                catch (Exception setEx)
+                                {
+                                    result.FailedParams++;
+                                    if (result.Errors.Count < 50)
+                                        result.Errors.Add("Row " + (rowIdx + 2) + ": " + colInfo.HeaderText + " - " + setEx.Message);
+                                }
+                            }
+                        }
+                        catch (Exception rowEx)
+                        {
+                            result.FailedParams++;
+                            if (result.Errors.Count < 50)
+                                result.Errors.Add("Row " + (rowIdx + 2) + ": " + rowEx.Message);
+                        }
+                    }
+
+                    // Commit
+                    try
+                    {
+                        tx.Commit();
+
+                        if (failureHandler.FailureMessages.Count > 0)
+                        {
+                            result.FailedParams += failureHandler.FailureMessages.Count;
+                            foreach (var msg in failureHandler.FailureMessages)
+                            {
+                                if (result.Errors.Count < 50)
+                                    result.Errors.Add(msg);
+                            }
+                            Logger.Info(Logger.LogCategory.Import, "Revit failures: " + failureHandler.FailureMessages.Count);
+                        }
+
+                        Logger.Info(Logger.LogCategory.Import, "ImportToRevit: Committed - Updated=" + result.UpdatedParams + " Failed=" + result.FailedParams);
+                    }
+                    catch (Exception commitEx)
+                    {
+                        Logger.Error(Logger.LogCategory.Import, "ImportToRevit: Commit failed", commitEx);
+                        result.Errors.Add("Commit error: " + commitEx.Message);
+                        result.FailedParams++;
+                    }
                 }
                 catch (Exception ex)
                 {
                     tx.RollBack();
+                    Logger.Error(Logger.LogCategory.Import, "ImportToRevit: Transaction failed", ex);
                     result.Errors.Add("Transaction failed: " + ex.Message);
                 }
             }
 
-            progressWin.Close();
             return result;
+        }
+
+
+        // ============================================================
+        // ADD these two classes at the END of ExcelImportService.cs
+        // (before the last closing } of the namespace)
+        // ============================================================
+
+        /// <summary>
+        /// Tracks a unique parameter change for two-pass processing.
+        /// </summary>
+        internal class UniqueParamChange
+        {
+            public int RowIndex { get; set; }
+            public Element Element { get; set; }
+            public Parameter Param { get; set; }
+            public ScheduleColumnInfo ColInfo { get; set; }
+            public string NewValue { get; set; }
+            public string CurrentValue { get; set; }
         }
 
         #region Private Helpers
@@ -337,5 +495,49 @@ namespace ScheduleLink.Services
         }
 
         #endregion
+    }
+
+    internal class IgnoreWarningsHandler : IFailuresPreprocessor
+    {
+        public List<string> FailureMessages { get; } = new List<string>();
+        public Document Doc { get; set; }
+
+        public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
+        {
+            var failures = failuresAccessor.GetFailureMessages();
+            foreach (var failure in failures)
+            {
+                var severity = failure.GetSeverity();
+                string desc = failure.GetDescriptionText();
+
+                var elementIds = failure.GetAdditionalElementIds();
+                string elemInfo = "";
+                if (elementIds != null && elementIds.Count > 0 && Doc != null)
+                {
+                    var idStrings = new List<string>();
+                    foreach (var eid in elementIds)
+                    {
+                        Element elem = Doc.GetElement(eid);
+                        string name = elem != null
+                            ? elem.Name + " (id " + eid.ToString() + ")"
+                            : eid.ToString();
+                        idStrings.Add(name);
+                    }
+                    elemInfo = " | " + string.Join(", ", idStrings);
+                }
+
+                if (severity == FailureSeverity.Warning)
+                {
+                    FailureMessages.Add("[Warning] " + desc + elemInfo);
+                    failuresAccessor.DeleteWarning(failure);
+                }
+                else if (severity == FailureSeverity.Error)
+                {
+                    FailureMessages.Add("[Error] " + desc + elemInfo);
+                    failuresAccessor.ResolveFailure(failure);
+                }
+            }
+            return FailureProcessingResult.Continue;
+        }
     }
 }

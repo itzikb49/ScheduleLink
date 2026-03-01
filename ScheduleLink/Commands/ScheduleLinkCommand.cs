@@ -1,9 +1,12 @@
+// ScheduleLinkCommand.cs
 using System;
 using System.IO;
 using System.Text;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using ScheduleLink.Analytics;
+using ScheduleLink.Helpers;
 using ScheduleLink.Models;
 using ScheduleLink.Services;
 using ScheduleLink.Views;
@@ -21,7 +24,17 @@ namespace ScheduleLink.Commands
 
             try
             {
+                Logger.Info(Logger.LogCategory.General, "--- Command Execute ---");
+                Logger.Info(Logger.LogCategory.General, "Document: " + doc.Title);
+
+                // Track session for analytics
+                AnalyticsService.TrackSessionStarted(doc);
+
+                // Check for updates (background, non-blocking)
+                UpdateCheckService.CheckForUpdates();
+
                 var schedules = ScheduleReaderService.GetAllSchedules(doc);
+                Logger.Info(Logger.LogCategory.General, "Schedules found: " + schedules.Count);
 
                 if (schedules.Count == 0)
                 {
@@ -35,13 +48,24 @@ namespace ScheduleLink.Commands
                 if (dialogResult != true)
                     return Result.Cancelled;
 
+                Result result;
                 if (dialog.IsExportMode)
-                    return ExecuteExport(doc, dialog.SelectedSchedule);
+                    result = ExecuteExport(doc, dialog.SelectedSchedule);
                 else
-                    return ExecuteImport(doc);
+                    result = ExecuteImport(doc);
+
+                // Ask for rating after successful operation
+                if (result == Result.Succeeded)
+                {
+                    try { RatingService.MaybeAskForRating(uiApp); }
+                    catch { }
+                }
+
+                return result;
             }
             catch (Exception ex)
             {
+                Logger.Error(Logger.LogCategory.General, "Command.Execute", ex);
                 message = ex.Message;
                 TaskDialog.Show("ScheduleLink - Error", ex.Message);
                 return Result.Failed;
@@ -50,17 +74,22 @@ namespace ScheduleLink.Commands
 
         private Result ExecuteExport(Document doc, ViewSchedule schedule)
         {
-            // Read data inside a transaction (some Revit versions require it)
+            Logger.Info(Logger.LogCategory.Export, "Export: Schedule='" + schedule.Name + "'");
+            Logger.InitializeExportImportLog("EXPORT - " + schedule.Name);
+
             ScheduleExportData data;
             using (var tx = new Transaction(doc, "ScheduleLink Export Read"))
             {
                 tx.Start();
                 data = ScheduleReaderService.ExtractScheduleData(doc, schedule);
-                tx.RollBack(); // No changes, just reading
+                tx.RollBack();
             }
+
+            Logger.Info(Logger.LogCategory.Export, "Export: Rows=" + data.Rows.Count + " Columns=" + data.Columns.Count);
 
             if (data.Rows.Count == 0)
             {
+                Logger.CompleteExportImportLog(false, "No data rows");
                 TaskDialog.Show("ScheduleLink", "Schedule contains no data rows.");
                 return Result.Failed;
             }
@@ -77,6 +106,13 @@ namespace ScheduleLink.Commands
                 return Result.Cancelled;
 
             string filePath = ExcelExportService.Export(data, saveDlg.FileName);
+            Logger.Info(Logger.LogCategory.Export, "Export: Saved to " + filePath);
+
+            // Track analytics
+            AnalyticsService.TrackOperation(exports: 1);
+
+            Logger.CompleteExportImportLog(true,
+                "Rows=" + data.Rows.Count + " Columns=" + data.Columns.Count);
 
             var td = new TaskDialog("ScheduleLink - Export Complete");
             td.MainInstruction = "Export completed successfully!";
@@ -102,6 +138,9 @@ namespace ScheduleLink.Commands
 
         private Result ExecuteImport(Document doc)
         {
+            Logger.Info(Logger.LogCategory.Import, "Import: Started");
+            Logger.InitializeExportImportLog("IMPORT");
+
             var openDlg = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Excel File to Import",
@@ -112,12 +151,18 @@ namespace ScheduleLink.Commands
             if (openDlg.ShowDialog() != true)
                 return Result.Cancelled;
 
+            Logger.Info(Logger.LogCategory.Import, "Import: File=" + openDlg.FileName);
+
             ScheduleExportData excelData = ExcelImportService.ReadExcelFile(openDlg.FileName);
             if (excelData == null || excelData.Rows.Count == 0)
             {
+                Logger.Info(Logger.LogCategory.Import, "Import: Failed to read Excel data");
+                Logger.CompleteExportImportLog(false, "Failed to read Excel data");
                 TaskDialog.Show("ScheduleLink", "Could not read data from the Excel file.");
                 return Result.Failed;
             }
+
+            Logger.Info(Logger.LogCategory.Import, "Import: Rows=" + excelData.Rows.Count + " Columns=" + excelData.Columns.Count);
 
             int editable = 0, readOnly = 0;
             foreach (var col in excelData.Columns)
@@ -139,8 +184,19 @@ namespace ScheduleLink.Commands
             if (confirmDlg.Show() != TaskDialogResult.Yes)
                 return Result.Cancelled;
 
-            // Single transaction for import (supports undo)
             ImportResult result = ExcelImportService.ImportToRevit(doc, excelData);
+
+            Logger.Info(Logger.LogCategory.Import, "Import: Updated=" + result.UpdatedParams +
+                " Unchanged=" + result.SkippedUnchanged +
+                " ReadOnly=" + result.SkippedReadOnly +
+                " Failed=" + result.FailedParams +
+                " NotFound=" + result.ElementsNotFound);
+
+            // Track analytics
+            AnalyticsService.TrackOperation(imports: 1);
+
+            Logger.CompleteExportImportLog(result.UpdatedParams > 0,
+                "Updated=" + result.UpdatedParams + " Failed=" + result.FailedParams);
 
             var sb = new StringBuilder();
             sb.AppendLine("Rows: " + result.TotalRows);

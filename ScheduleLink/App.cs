@@ -1,8 +1,12 @@
+// App.cs
+
 using System;
 using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
+using ScheduleLink.Analytics;
+using ScheduleLink.Helpers;
 
 namespace ScheduleLink
 {
@@ -12,6 +16,11 @@ namespace ScheduleLink
         {
             try
             {
+                // Initialize Logger (overwrites previous session log)
+                Logger.Initialize("ScheduleLink", "1.0.0");
+                Logger.Info(Logger.LogCategory.General, "Revit: " + application.ControlledApplication.VersionName);
+                Logger.Info(Logger.LogCategory.General, "Assembly: " + Assembly.GetExecutingAssembly().Location);
+
                 string tabName = "IB-BIM Tools";
                 try { application.CreateRibbonTab(tabName); }
                 catch { }
@@ -34,7 +43,6 @@ namespace ScheduleLink
 
                 PushButton btn = panel.AddItem(btnData) as PushButton;
 
-                // Load embedded icon
                 if (btn != null)
                 {
                     BitmapSource icon32 = GetEmbeddedImage("ScheduleLink.Resources.Schedule_1_32.png");
@@ -42,12 +50,15 @@ namespace ScheduleLink
 
                     if (icon32 != null) btn.LargeImage = icon32;
                     if (icon16 != null) btn.Image = icon16;
+                    Logger.Info(Logger.LogCategory.General, "Icons loaded: 32=" + (icon32 != null) + " 16=" + (icon16 != null));
                 }
 
+                Logger.Info(Logger.LogCategory.General, "ScheduleLink initialized successfully");
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
+                Logger.Error(Logger.LogCategory.General, "Failed to initialize ScheduleLink", ex);
                 TaskDialog.Show("ScheduleLink Error", "Failed to initialize:\n" + ex.Message);
                 return Result.Failed;
             }
@@ -55,6 +66,7 @@ namespace ScheduleLink
 
         public Result OnShutdown(UIControlledApplication application)
         {
+            Logger.Shutdown();
             return Result.Succeeded;
         }
 
