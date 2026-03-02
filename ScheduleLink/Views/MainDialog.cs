@@ -167,7 +167,11 @@ namespace ScheduleLink.Views
                 Text = "Search...",
                 Foreground = Brushes.Gray
             };
-            _searchBox.LostFocus += (s, e) =>
+            _searchBox.GotFocus += (s, e) =>
+            {
+                if (_searchBox.Foreground == Brushes.Gray)
+                { _searchBox.Text = ""; _searchBox.Foreground = Brushes.Black; }
+            };
             {
                 if (string.IsNullOrWhiteSpace(_searchBox.Text))
                 {
@@ -177,11 +181,7 @@ namespace ScheduleLink.Views
                     _searchBox.TextChanged += SearchBox_TextChanged;
                 }
             };
-            _searchBox.LostFocus += (s, e) =>
-            {
-                if (string.IsNullOrWhiteSpace(_searchBox.Text))
-                { _searchBox.Text = "Search..."; _searchBox.Foreground = Brushes.Gray; }
-            };
+            
             _searchBox.TextChanged += SearchBox_TextChanged;
             searchBorder.Child = _searchBox;
             DockPanel.SetDock(searchBorder, Dock.Top);

@@ -76,6 +76,7 @@ namespace ScheduleLink.Services
                 }
 
                 ReadScheduleIdFromInstructions(package, data);
+                ReadColumnMapping(package, data);
             }
 
             return data;
@@ -418,6 +419,44 @@ namespace ScheduleLink.Services
                             data.ScheduleId = id;
                         break;
                     }
+                }
+            }
+            catch { }
+        }
+
+        private static void ReadColumnMapping(ExcelPackage package, ScheduleExportData data)
+        {
+            try
+            {
+                var instrWs = package.Workbook.Worksheets["Instructions"];
+                if (instrWs == null || instrWs.Dimension == null) return;
+
+                // Find "Column Mapping:" row
+                int startRow = -1;
+                for (int r = 1; r <= Math.Min(instrWs.Dimension.End.Row, 40); r++)
+                {
+                    string label = instrWs.Cells[r, 1].Text ?? "";
+                    if (label.Trim().StartsWith("Column Mapping"))
+                    { startRow = r + 2; break; }  // skip header row
+                }
+                if (startRow < 0) return;
+
+                // Build header->name mapping
+                var mapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                for (int r = startRow; r <= instrWs.Dimension.End.Row; r++)
+                {
+                    string header = (instrWs.Cells[r, 1].Text ?? "").Trim();
+                    string paramName = (instrWs.Cells[r, 2].Text ?? "").Trim();
+                    if (string.IsNullOrEmpty(header)) break;
+                    if (!string.IsNullOrEmpty(paramName))
+                        mapping[header] = paramName;
+                }
+
+                // Apply mapping to columns
+                foreach (var col in data.Columns)
+                {
+                    if (mapping.TryGetValue(col.HeaderText, out string name))
+                        col.Name = name;
                 }
             }
             catch { }

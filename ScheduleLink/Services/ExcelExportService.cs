@@ -144,6 +144,23 @@ namespace ScheduleLink.Services
             ws.Cells[r, 1].Value = "4. Edit only GREEN and YELLOW cells"; r++;
             ws.Cells[r, 1].Value = "5. Undo in Revit: Ctrl+Z"; r++;
 
+            r++;
+            ws.Cells[r, 1].Value = "Column Mapping:";
+            ws.Cells[r, 1].Style.Font.Bold = true;
+            ws.Cells[r, 1].Style.Font.Size = 13;
+            r++;
+            ws.Cells[r, 1].Value = "Header";
+            ws.Cells[r, 2].Value = "Parameter Name";
+            ws.Cells[r, 1].Style.Font.Bold = true;
+            ws.Cells[r, 2].Style.Font.Bold = true;
+            r++;
+            foreach (var col in data.Columns)
+            {
+                ws.Cells[r, 1].Value = col.HeaderText;
+                ws.Cells[r, 2].Value = col.Name;
+                r++;
+            }
+
             ws.Column(1).AutoFit(20, 80);
             ws.Column(2).AutoFit(15, 40);
         }
