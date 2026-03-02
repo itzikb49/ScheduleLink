@@ -4,7 +4,7 @@
     <Name>ScheduleLink</Name>
     <Assembly>ScheduleLink.dll</Assembly>
     <FullClassName>ScheduleLink.App</FullClassName>
-    <ClientId>B2C3D4E5-F6A7-8901-BCDE-FA2345678901</ClientId>
+    <ClientId>29139C3F-1905-475E-A2B9-7EC5AD73D5B5</ClientId>
     <VendorId>IB-BIM</VendorId>
     <VendorDescription>IB-BIM, Itzik - BIM Developer</VendorDescription>
   </AddIn>

@@ -167,10 +167,15 @@ namespace ScheduleLink.Views
                 Text = "Search...",
                 Foreground = Brushes.Gray
             };
-            _searchBox.GotFocus += (s, e) =>
+            _searchBox.LostFocus += (s, e) =>
             {
-                if (_searchBox.Foreground == Brushes.Gray)
-                { _searchBox.Text = ""; _searchBox.Foreground = Brushes.Black; }
+                if (string.IsNullOrWhiteSpace(_searchBox.Text))
+                {
+                    _searchBox.TextChanged -= SearchBox_TextChanged;
+                    _searchBox.Text = "Search...";
+                    _searchBox.Foreground = Brushes.Gray;
+                    _searchBox.TextChanged += SearchBox_TextChanged;
+                }
             };
             _searchBox.LostFocus += (s, e) =>
             {

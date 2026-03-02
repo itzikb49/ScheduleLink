@@ -51,6 +51,11 @@ namespace ScheduleLink
                     if (icon32 != null) btn.LargeImage = icon32;
                     if (icon16 != null) btn.Image = icon16;
                     Logger.Info(Logger.LogCategory.General, "Icons loaded: 32=" + (icon32 != null) + " 16=" + (icon16 != null));
+
+                    // F1 help - opens online documentation
+                    btn.SetContextualHelp(new ContextualHelp(
+                        ContextualHelpType.Url,
+                        "https://itzikb49.github.io/IB-BIM-ScheduleLink-Docs/UserGuide"));
                 }
 
                 Logger.Info(Logger.LogCategory.General, "ScheduleLink initialized successfully");
