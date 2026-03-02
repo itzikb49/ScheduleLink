@@ -172,6 +172,7 @@ namespace ScheduleLink.Views
                 if (_searchBox.Foreground == Brushes.Gray)
                 { _searchBox.Text = ""; _searchBox.Foreground = Brushes.Black; }
             };
+            _searchBox.LostFocus += (s, e) =>
             {
                 if (string.IsNullOrWhiteSpace(_searchBox.Text))
                 {
