@@ -7,6 +7,7 @@ using System.Windows.Media.Imaging;
 using Autodesk.Revit.UI;
 using ScheduleLink.Analytics;
 using ScheduleLink.Helpers;
+using ScheduleLink.Views;
 
 namespace ScheduleLink
 {
@@ -64,7 +65,7 @@ namespace ScheduleLink
             catch (Exception ex)
             {
                 Logger.Error(Logger.LogCategory.General, "Failed to initialize ScheduleLink", ex);
-                TaskDialog.Show("ScheduleLink Error", "Failed to initialize:\n" + ex.Message);
+                MainDialog.ShowError("ScheduleLink Error", "Failed to initialize:\n" + ex.Message);
                 return Result.Failed;
             }
         }

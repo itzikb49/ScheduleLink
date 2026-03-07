@@ -15,7 +15,7 @@ namespace ScheduleLink.Services
     public static class LicenseManager
     {
         // Set to false for testing, true for production
-        public const bool ENABLE_LICENSE = true;
+        public const bool ENABLE_LICENSE = false;
         public const bool ENABLE_RATING = true;
 
         /// <summary>

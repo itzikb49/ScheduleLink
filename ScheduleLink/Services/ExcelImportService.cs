@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using OfficeOpenXml;
 using Autodesk.Revit.DB;
 using ScheduleLink.Helpers;
@@ -207,7 +208,7 @@ namespace ScheduleLink.Services
                                 {
                                     SetParameterValue(change.Param, change.CurrentValue);
                                     result.FailedParams++;
-                                    if (result.Errors.Count < 50)
+                                    if (result.Errors.Count < 200)
                                         result.Errors.Add("Row " + (change.RowIndex + 2) + ": Excel value '" + change.NewValue + "' is duplicate → kept Revit value '" + change.CurrentValue + "'");
                                 }
                                 else
@@ -221,7 +222,7 @@ namespace ScheduleLink.Services
                                     {
                                         SetParameterValue(change.Param, change.CurrentValue);
                                         result.FailedParams++;
-                                        if (result.Errors.Count < 50)
+                                        if (result.Errors.Count < 200)
                                             result.Errors.Add("Row " + (change.RowIndex + 2) + ": Failed to set '" + change.ColInfo.HeaderText + "' = '" + change.NewValue + "'");
                                     }
                                 }
@@ -230,7 +231,7 @@ namespace ScheduleLink.Services
                             {
                                 try { SetParameterValue(change.Param, change.CurrentValue); } catch { }
                                 result.FailedParams++;
-                                if (result.Errors.Count < 50)
+                                if (result.Errors.Count < 200)
                                     result.Errors.Add("Row " + (change.RowIndex + 2) + ": " + change.ColInfo.HeaderText + " - " + ex.Message);
                             }
                         }
@@ -252,7 +253,7 @@ namespace ScheduleLink.Services
                             if (elem == null)
                             {
                                 result.ElementsNotFound++;
-                                if (result.Errors.Count < 50)
+                                if (result.Errors.Count < 200)
                                     result.Errors.Add("Row " + (rowIdx + 2) + ": Element " + row.ElementId + " not found");
                                 continue;
                             }
@@ -303,14 +304,14 @@ namespace ScheduleLink.Services
                                     else
                                     {
                                         result.FailedParams++;
-                                        if (result.Errors.Count < 50)
+                                        if (result.Errors.Count < 200)
                                             result.Errors.Add("Row " + (rowIdx + 2) + ": Failed to set '" + colInfo.HeaderText + "' = '" + newValue + "'");
                                     }
                                 }
                                 catch (Exception setEx)
                                 {
                                     result.FailedParams++;
-                                    if (result.Errors.Count < 50)
+                                    if (result.Errors.Count < 200)
                                         result.Errors.Add("Row " + (rowIdx + 2) + ": " + colInfo.HeaderText + " - " + setEx.Message);
                                 }
                             }
@@ -318,7 +319,7 @@ namespace ScheduleLink.Services
                         catch (Exception rowEx)
                         {
                             result.FailedParams++;
-                            if (result.Errors.Count < 50)
+                            if (result.Errors.Count < 200)
                                 result.Errors.Add("Row " + (rowIdx + 2) + ": " + rowEx.Message);
                         }
                     }
@@ -333,7 +334,7 @@ namespace ScheduleLink.Services
                             result.FailedParams += failureHandler.FailureMessages.Count;
                             foreach (var msg in failureHandler.FailureMessages)
                             {
-                                if (result.Errors.Count < 50)
+                                if (result.Errors.Count < 200)
                                     result.Errors.Add(msg);
                             }
                             Logger.Info(Logger.LogCategory.Import, "Revit failures: " + failureHandler.FailureMessages.Count);
@@ -473,13 +474,29 @@ namespace ScheduleLink.Services
                     return param.AsString() ?? string.Empty;
 
                 case StorageType.Integer:
+                    // Use AsValueString first - this returns display text like "Fine", "Architectural"
+                    // Falls back to raw integer if no display string available
+                    string intDisplay = param.AsValueString();
+                    if (!string.IsNullOrEmpty(intDisplay))
+                        return intDisplay;
                     return param.AsInteger().ToString();
 
                 case StorageType.Double:
                     return param.AsValueString() ?? param.AsDouble().ToString(CultureInfo.InvariantCulture);
 
                 case StorageType.ElementId:
-                    return param.AsElementId().GetIdValueLong().ToString();
+                    // Try to get element name for display (e.g., View Template name, Scope Box name)
+                    ElementId eid = param.AsElementId();
+                    if (eid != null && eid != ElementId.InvalidElementId)
+                    {
+                        Element refElem = param.Element?.Document?.GetElement(eid);
+                        if (refElem != null && !string.IsNullOrEmpty(refElem.Name))
+                            return refElem.Name;
+                    }
+                    string eidDisplay = param.AsValueString();
+                    if (!string.IsNullOrEmpty(eidDisplay))
+                        return eidDisplay;
+                    return eid.GetIdValueLong().ToString();
 
                 default:
                     return string.Empty;
@@ -499,17 +516,35 @@ namespace ScheduleLink.Services
                         return true;
 
                     case StorageType.Integer:
+                        // Try direct integer parse first
                         if (int.TryParse(value, out int intVal))
                         { param.Set(intVal); return true; }
 
+                        // Try Yes/No/boolean variants
                         string lower = (value ?? "").Trim().ToLower();
-                        if (lower == "yes" || lower == "כן" || lower == "true" || lower == "1")
+                        if (lower == "yes" || lower == "\u05DB\u05DF" || lower == "true" || lower == "1")
                         { param.Set(1); return true; }
-                        if (lower == "no" || lower == "לא" || lower == "false" || lower == "0")
+                        if (lower == "no" || lower == "\u05DC\u05D0" || lower == "false" || lower == "0")
                         { param.Set(0); return true; }
+
+                        // Try known Revit enum mappings (display name -> integer value)
+                        int? knownEnum = ResolveKnownEnumValue(param, value);
+                        if (knownEnum.HasValue)
+                        { param.Set(knownEnum.Value); return true; }
+
+                        // Try SetValueString - handles enum display names generically
+                        if (TrySetValueString(param, value))
+                            return true;
+
+                        Logger.Info(Logger.LogCategory.Import,
+                            $"  SetParameterValue FAILED: param='{param.Definition.Name}' storage=Integer value='{value}' builtIn={GetBuiltInParamName(param)}");
                         return false;
 
                     case StorageType.Double:
+                        // Try SetValueString first - handles unit-formatted strings like 14'-0"
+                        if (TrySetValueString(param, value))
+                            return true;
+
                         if (double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out double d))
                         { param.Set(ConvertToInternal(param, d)); return true; }
                         if (double.TryParse(value, NumberStyles.Any, CultureInfo.CurrentCulture, out double d2))
@@ -517,8 +552,36 @@ namespace ScheduleLink.Services
                         return false;
 
                     case StorageType.ElementId:
+                        // Try direct ID parse first
                         if (long.TryParse(value, out long eidVal))
                         { param.Set(eidVal.ToElementId()); return true; }
+
+                        // Try SetValueString
+                        if (TrySetValueString(param, value))
+                            return true;
+
+                        // Try to find element by name (for View Template, Scope Box, etc.)
+                        if (!string.IsNullOrEmpty(value) && value != "<None>" && value != "None" && value != "---")
+                        {
+                            Document doc = param.Element?.Document;
+                            if (doc != null)
+                            {
+                                Element found = FindElementByName(doc, value);
+                                if (found != null)
+                                {
+                                    param.Set(found.Id);
+                                    return true;
+                                }
+                            }
+                        }
+
+                        // Handle "<None>" / "None" - set to InvalidElementId
+                        if (string.IsNullOrEmpty(value) || value == "<None>" || value == "None" || value == "---")
+                        {
+                            param.Set(ElementId.InvalidElementId);
+                            return true;
+                        }
+
                         return false;
 
                     default:
@@ -526,6 +589,152 @@ namespace ScheduleLink.Services
                 }
             }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Maps known Revit enum display names to their integer values.
+        /// This handles BuiltIn parameters like Detail Level, Discipline, etc.
+        /// </summary>
+        private static int? ResolveKnownEnumValue(Parameter param, string displayValue)
+        {
+            if (param == null || string.IsNullOrEmpty(displayValue)) return null;
+
+            string trimmed = displayValue.Trim();
+
+            // Get the BuiltIn parameter ID to determine the enum type
+            string builtInName = GetBuiltInParamName(param);
+
+            // ViewDetailLevel: Coarse=1, Medium=2, Fine=3
+            if (builtInName == "VIEW_DETAIL_LEVEL" ||
+                param.Definition.Name == "Detail Level")
+            {
+                switch (trimmed.ToLower())
+                {
+                    case "coarse": return 1;
+                    case "medium": return 2;
+                    case "fine": return 3;
+                }
+            }
+
+            // ViewDiscipline
+            if (builtInName == "VIEW_DISCIPLINE" ||
+                param.Definition.Name == "Discipline")
+            {
+                switch (trimmed.ToLower())
+                {
+                    case "architectural": return 1;
+                    case "structural": return 2;
+                    case "mechanical": return 4;
+                    case "electrical": return 8;
+                    case "plumbing": return 16;
+                    case "coordination": return 4095;
+                }
+            }
+
+            // Generic fallback: try setting values 0-20 and check AsValueString match
+            try
+            {
+                int currentVal = param.AsInteger();
+                for (int testVal = 0; testVal <= 20; testVal++)
+                {
+                    if (testVal == currentVal) continue;
+                    param.Set(testVal);
+                    string testDisplay = param.AsValueString();
+                    if (string.Equals(testDisplay, trimmed, StringComparison.OrdinalIgnoreCase))
+                        return testVal;  // already set to correct value
+                }
+                // Restore original value if no match found
+                param.Set(currentVal);
+            }
+            catch { }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Gets the BuiltInParameter name for logging and identification
+        /// </summary>
+        private static string GetBuiltInParamName(Parameter param)
+        {
+            try
+            {
+                if (param?.Definition is InternalDefinition intDef)
+                    return intDef.BuiltInParameter.ToString();
+            }
+            catch { }
+            return "UNKNOWN";
+        }
+
+        /// <summary>
+        /// Safely tries param.SetValueString(). Works across all Revit versions.
+        /// Verifies the value actually changed after setting.
+        /// </summary>
+        private static bool TrySetValueString(Parameter param, string value)
+        {
+            if (param == null || string.IsNullOrEmpty(value)) return false;
+
+            try
+            {
+                // Remember current value to verify change
+                string before = param.AsValueString() ?? "";
+
+                // SetValueString is void in some Revit versions, bool in others
+                // Using reflection to handle both cases
+                var method = typeof(Parameter).GetMethod("SetValueString", new[] { typeof(string) });
+                if (method == null) return false;
+
+                var returnType = method.ReturnType;
+                var result = method.Invoke(param, new object[] { value });
+
+                // If method returns bool, use it
+                if (returnType == typeof(bool) && result is bool boolResult)
+                    return boolResult;
+
+                // If method is void, check if value actually changed
+                string after = param.AsValueString() ?? "";
+                if (after != before)
+                    return true;
+
+                // Check if the new value matches what we tried to set
+                // (handles case where before and after are same because value was already correct)
+                if (string.Equals(after, value, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Tries to find an element by name in the document.
+        /// Searches views (for View Template), scope boxes, and other named elements.
+        /// </summary>
+        private static Element FindElementByName(Document doc, string name)
+        {
+            if (doc == null || string.IsNullOrEmpty(name)) return null;
+
+            try
+            {
+                // Search all elements with a name
+                var collector = new FilteredElementCollector(doc)
+                    .WhereElementIsNotElementType();
+
+                foreach (Element elem in collector)
+                {
+                    try
+                    {
+                        if (elem.Name == name)
+                            return elem;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            return null;
         }
 
         private static double ConvertToInternal(Parameter param, double displayValue)
@@ -566,38 +775,118 @@ namespace ScheduleLink.Services
         public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
         {
             var failures = failuresAccessor.GetFailureMessages();
+            ScheduleLink.Helpers.Logger.Info(
+                ScheduleLink.Helpers.Logger.LogCategory.Import,
+                "FailureHandler: " + failures.Count + " failure messages received");
+
+            // PASS 1: Collect ALL messages first before any resolve/delete
+            var warningFailures = new List<FailureMessageAccessor>();
+            var errorFailures = new List<FailureMessageAccessor>();
+
             foreach (var failure in failures)
             {
                 var severity = failure.GetSeverity();
                 string desc = failure.GetDescriptionText();
+                string severityTag = severity == FailureSeverity.Warning ? "[Warning]" : "[Error]";
 
-                var elementIds = failure.GetAdditionalElementIds();
-                string elemInfo = "";
-                if (elementIds != null && elementIds.Count > 0 && Doc != null)
+                // Collect ALL related elements (failing + additional)
+                var allElementIds = new List<ElementId>();
+                int failingCount = 0, additionalCount = 0;
+
+                try
                 {
-                    var idStrings = new List<string>();
-                    foreach (var eid in elementIds)
+                    var failingIds = failure.GetFailingElementIds();
+                    if (failingIds != null)
                     {
-                        Element elem = Doc.GetElement(eid);
-                        string name = elem != null
-                            ? elem.Name + " (id " + eid.ToString() + ")"
-                            : eid.ToString();
-                        idStrings.Add(name);
+                        failingCount = failingIds.Count;
+                        allElementIds.AddRange(failingIds);
                     }
-                    elemInfo = " | " + string.Join(", ", idStrings);
+                }
+                catch { }
+
+                try
+                {
+                    var additionalIds = failure.GetAdditionalElementIds();
+                    if (additionalIds != null)
+                    {
+                        additionalCount = additionalIds.Count;
+                        allElementIds.AddRange(additionalIds);
+                    }
+                }
+                catch { }
+
+                ScheduleLink.Helpers.Logger.Info(
+                    ScheduleLink.Helpers.Logger.LogCategory.Import,
+                    $"  Failure: '{desc}' | Failing={failingCount} Additional={additionalCount} Total={allElementIds.Count}");
+
+                // Create ONE message PER element for clear reporting
+                if (allElementIds.Count > 0 && Doc != null)
+                {
+                    foreach (var eid in allElementIds)
+                    {
+                        try
+                        {
+                            Element elem = Doc.GetElement(eid);
+                            if (elem != null)
+                            {
+                                string category = elem.Category?.Name ?? "";
+                                string name = elem.Name ?? "";
+                                string viewType = "";
+
+                                if (elem is Autodesk.Revit.DB.View view)
+                                {
+                                    try
+                                    {
+                                        viewType = view.ViewType.ToString().Replace("FloorPlan", "Floor Plan")
+                                        .Replace("CeilingPlan", "Ceiling Plan")
+                                        .Replace("ThreeD", "3D View")
+                                        .Replace("DrawingSheet", "Sheet");
+                                    }
+                                    catch { }
+                                }
+
+                                string elemDesc = category;
+                                if (!string.IsNullOrEmpty(viewType))
+                                    elemDesc += " : " + viewType;
+                                if (!string.IsNullOrEmpty(name))
+                                    elemDesc += " : " + name;
+                                elemDesc += " : id " + eid.ToString();
+
+                                FailureMessages.Add(severityTag + " " + elemDesc + " - " + desc);
+                            }
+                            else
+                            {
+                                FailureMessages.Add(severityTag + " id " + eid.ToString() + " - " + desc);
+                            }
+                        }
+                        catch
+                        {
+                            FailureMessages.Add(severityTag + " id " + eid.ToString() + " - " + desc);
+                        }
+                    }
+                }
+                else
+                {
+                    FailureMessages.Add(severityTag + " " + desc);
                 }
 
+                // Store for pass 2
                 if (severity == FailureSeverity.Warning)
-                {
-                    FailureMessages.Add("[Warning] " + desc + elemInfo);
-                    failuresAccessor.DeleteWarning(failure);
-                }
+                    warningFailures.Add(failure);
                 else if (severity == FailureSeverity.Error)
-                {
-                    FailureMessages.Add("[Error] " + desc + elemInfo);
-                    failuresAccessor.ResolveFailure(failure);
-                }
+                    errorFailures.Add(failure);
             }
+
+            // PASS 2: Now resolve/delete after all messages collected
+            foreach (var warning in warningFailures)
+            {
+                try { failuresAccessor.DeleteWarning(warning); } catch { }
+            }
+            foreach (var error in errorFailures)
+            {
+                try { failuresAccessor.ResolveFailure(error); } catch { }
+            }
+
             return FailureProcessingResult.Continue;
         }
     }

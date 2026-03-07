@@ -7,6 +7,7 @@ using System;
 using System.Net.Http;
 using System.Threading.Tasks;
 using ScheduleLink.Helpers;
+using ScheduleLink.Views;
 
 namespace ScheduleLink.Analytics
 {
@@ -145,33 +146,34 @@ namespace ScheduleLink.Analytics
         {
             try
             {
-                var urgency = versionInfo.CriticalUpdate ? "Critical " : "";
+                var isCritical = versionInfo.CriticalUpdate;
 
                 var changelogText = (versionInfo.Changelog != null && versionInfo.Changelog.Length > 0)
                     ? string.Join("\n", versionInfo.Changelog)
                     : "Bug fixes and improvements";
 
-                var dialog = new TaskDialog($"{urgency}Update Available - ScheduleLink")
+                string title = isCritical
+                    ? "Critical Update Available"
+                    : "Update Available";
+
+                string message = $"Version {versionInfo.LatestVersion} is now available!\n" +
+                    $"You're currently using version {CURRENT_VERSION}.\n\n" +
+                    (isCritical ? "This is a critical update with important bug fixes.\n\n" : "") +
+                    "What's new:\n" + changelogText;
+
+                bool download;
+                if (isCritical)
                 {
-                    MainIcon = versionInfo.CriticalUpdate
-                        ? TaskDialogIcon.TaskDialogIconWarning
-                        : TaskDialogIcon.TaskDialogIconInformation,
-
-                    MainInstruction = $"Version {versionInfo.LatestVersion} is now available!",
-
-                    MainContent =
-                        $"You're currently using version {CURRENT_VERSION}.\n\n" +
-                        (versionInfo.CriticalUpdate ? "This is a critical update with important bug fixes.\n\n" : "") +
-                        "What's new:\n" + changelogText + "\n\n" +
+                    download = MainDialog.ShowWarning(title, message, "Would you like to download the update?");
+                }
+                else
+                {
+                    download = MainDialog.ShowConfirm(title, message,
                         "Would you like to download the update?",
+                        "Download", "Not Now");
+                }
 
-                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-                    DefaultButton = versionInfo.CriticalUpdate ? TaskDialogResult.Yes : TaskDialogResult.No
-                };
-
-                var result = dialog.Show();
-
-                if (result == TaskDialogResult.Yes)
+                if (download)
                 {
                     try
                     {
@@ -179,7 +181,11 @@ namespace ScheduleLink.Analytics
                             ? versionInfo.DownloadUrl
                             : "https://apps.autodesk.com";
 
-                        System.Diagnostics.Process.Start(url);
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = url,
+                            UseShellExecute = true
+                        });
                     }
                     catch { }
                 }

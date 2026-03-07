@@ -6,6 +6,7 @@
     <FullClassName>ScheduleLink.App</FullClassName>
     <ClientId>29139C3F-1905-475E-A2B9-7EC5AD73D5B5</ClientId>
     <VendorId>IB-BIM</VendorId>
-    <VendorDescription>IB-BIM, Itzik - BIM Developer</VendorDescription>
+    <VendorDescription>IB-BIM, Itzik Bejarano - BIM Developer</VendorDescription>
+    <Version>1.0.0</Version>
   </AddIn>
 </RevitAddIns>

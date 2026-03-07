@@ -6,6 +6,7 @@ using System.Diagnostics;
 using Autodesk.Revit.UI;
 using ScheduleLink.Helpers;
 using ScheduleLink.Services;
+using ScheduleLink.Views;
 
 namespace ScheduleLink.Analytics
 {
@@ -33,7 +34,7 @@ namespace ScheduleLink.Analytics
                 return;
 
             // Condition 2: at least 50 operations (Import + Export)
-            if (stats.TotalOperations < 50)
+            if (stats.TotalOperations < 25)
                 return;
 
             if (stats.LastRatingPrompt.HasValue)
@@ -62,48 +63,37 @@ namespace ScheduleLink.Analytics
 
         private static void ShowRatingDialog()
         {
-            var dialog = new TaskDialog("Enjoying ScheduleLink?")
-            {
-                MainIcon = TaskDialogIcon.TaskDialogIconNone,
-                MainInstruction = "Quick question...",
-                MainContent =
-                    "Thanks for using ScheduleLink!\n\n" +
-                    "We'd be grateful if you could rate us on the Autodesk App Store!\n\n" +
-                    "Your rating helps us:\n" +
-                    "   - Improve the tool for you\n" +
-                    "   - Reach more BIM professionals\n" +
-                    "   - Keep developing new features\n\n" +
-                    "It takes just a few seconds - thank you!",
-                CommonButtons = TaskDialogCommonButtons.None
-            };
+            // Use styled 3-option dialog
+            int choice = MainDialog.ShowRatingDialog(
+                "Enjoying ScheduleLink?",
+                "Thanks for using ScheduleLink!\n\n" +
+                "We'd be grateful if you could rate us on the Autodesk App Store!\n\n" +
+                "Your rating helps us improve the tool, reach more BIM professionals, " +
+                "and keep developing new features.\n\n" +
+                "It takes just a few seconds - thank you!");
 
-            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
-                "Yes, take me to the App Store", "Opens your browser (30 seconds)");
-            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
-                "Maybe later", "We'll ask again in 2 days");
-            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink3,
-                "No thanks", "We'll ask once more in 2 weeks");
-
-            var result = dialog.Show();
-
-            if (result == TaskDialogResult.CommandLink1)
+            if (choice == 1) // Yes - go to App Store
             {
                 try
                 {
-                    Process.Start(AppStoreReviewUrl);
-                    TaskDialog.Show("Thank You!",
-                        "The App Store is opening in your browser.\n\n" +
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = AppStoreReviewUrl,
+                        UseShellExecute = true
+                    });
+                    MainDialog.ShowSuccess("Thank You!",
+                        "The App Store is opening in your browser.",
                         "Thank you for taking the time to rate us!");
                 }
                 catch { }
                 AnalyticsService.MarkUserAsRated();
             }
-            else if (result == TaskDialogResult.CommandLink2)
+            else if (choice == 2) // Maybe later
             {
                 AnalyticsService.MarkRatingPromptShown();
                 Logger.Info(Logger.LogCategory.General, "Rating: User selected 'Maybe later'");
             }
-            else if (result == TaskDialogResult.CommandLink3)
+            else if (choice == 3) // No thanks
             {
                 AnalyticsService.IncrementNoThanksCount();
                 var stats = AnalyticsService.GetSnapshot();

@@ -38,7 +38,7 @@ namespace ScheduleLink.Commands
 
                 if (schedules.Count == 0)
                 {
-                    TaskDialog.Show("ScheduleLink", "No schedules found in the project.");
+                    MainDialog.ShowInfo("ScheduleLink", "No schedules found in the project.");
                     return Result.Failed;
                 }
 
@@ -67,7 +67,7 @@ namespace ScheduleLink.Commands
             {
                 Logger.Error(Logger.LogCategory.General, "Command.Execute", ex);
                 message = ex.Message;
-                TaskDialog.Show("ScheduleLink - Error", ex.Message);
+                MainDialog.ShowError("ScheduleLink - Error", ex.Message);
                 return Result.Failed;
             }
         }
@@ -90,7 +90,7 @@ namespace ScheduleLink.Commands
             if (data.Rows.Count == 0)
             {
                 Logger.CompleteExportImportLog(false, "No data rows");
-                TaskDialog.Show("ScheduleLink", "Schedule contains no data rows.");
+                MainDialog.ShowInfo("ScheduleLink", "Schedule contains no data rows.");
                 return Result.Failed;
             }
 
@@ -114,17 +114,11 @@ namespace ScheduleLink.Commands
             Logger.CompleteExportImportLog(true,
                 "Rows=" + data.Rows.Count + " Columns=" + data.Columns.Count);
 
-            var td = new TaskDialog("ScheduleLink - Export Complete");
-            td.MainInstruction = "Export completed successfully!";
-            td.MainContent = "Schedule: " + data.ScheduleName + "\n"
-                           + "Rows: " + data.Rows.Count + "\n"
-                           + "Columns: " + data.Columns.Count + "\n\n"
-                           + filePath;
-            td.CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No;
-            td.DefaultButton = TaskDialogResult.Yes;
-            td.FooterText = "Open the file now?";
+            // Styled export complete dialog
+            bool openFile = MainDialog.ShowExportComplete(
+                data.ScheduleName, data.Rows.Count, data.Columns.Count, filePath);
 
-            if (td.Show() == TaskDialogResult.Yes)
+            if (openFile)
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
@@ -158,7 +152,7 @@ namespace ScheduleLink.Commands
             {
                 Logger.Info(Logger.LogCategory.Import, "Import: Failed to read Excel data");
                 Logger.CompleteExportImportLog(false, "Failed to read Excel data");
-                TaskDialog.Show("ScheduleLink", "Could not read data from the Excel file.");
+                MainDialog.ShowError("ScheduleLink", "Could not read data from the Excel file.");
                 return Result.Failed;
             }
 
@@ -171,17 +165,19 @@ namespace ScheduleLink.Commands
                 else editable++;
             }
 
-            var confirmDlg = new TaskDialog("ScheduleLink - Confirm Import");
-            confirmDlg.MainInstruction = "Import data to Revit?";
-            confirmDlg.MainContent = "Schedule: " + excelData.ScheduleName + "\n"
-                                   + "Rows: " + excelData.Rows.Count + "\n"
-                                   + "Editable columns: " + editable + "\n"
-                                   + "Read-only columns (skip): " + readOnly;
-            confirmDlg.CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No;
-            confirmDlg.DefaultButton = TaskDialogResult.Yes;
-            confirmDlg.FooterText = "You can undo with Ctrl+Z";
+            // Styled confirm dialog
+            string confirmMsg = "Schedule: " + excelData.ScheduleName + "\n"
+                              + "Rows: " + excelData.Rows.Count + "\n"
+                              + "Editable columns: " + editable + "\n"
+                              + "Read-only columns (skip): " + readOnly;
 
-            if (confirmDlg.Show() != TaskDialogResult.Yes)
+            bool confirmed = MainDialog.ShowConfirm(
+                "Confirm Import",
+                confirmMsg,
+                "You can undo with Ctrl+Z",
+                "Import", "Cancel");
+
+            if (!confirmed)
                 return Result.Cancelled;
 
             ImportResult result = ExcelImportService.ImportToRevit(doc, excelData);
@@ -212,13 +208,18 @@ namespace ScheduleLink.Commands
             if (result.Errors.Count > 0)
             {
                 sb.AppendLine();
-                sb.AppendLine("Errors:");
-                for (int i = 0; i < Math.Min(result.Errors.Count, 5); i++)
+                sb.AppendLine("--- Errors (" + result.Errors.Count + ") ---");
+                for (int i = 0; i < result.Errors.Count; i++)
                     sb.AppendLine("  " + result.Errors[i]);
             }
 
-            string title = result.UpdatedParams > 0 ? "Import Complete" : "No Changes";
-            TaskDialog.Show("ScheduleLink - " + title, sb.ToString());
+            string title = result.FailedParams == 0 && result.UpdatedParams > 0
+                ? "Import Complete"
+                : result.UpdatedParams > 0
+                    ? "Import Complete (with errors)"
+                    : "No Changes";
+
+            MainDialog.ShowImportResult(title, sb.ToString(), result.UpdatedParams > 0, result.FailedParams);
 
             return Result.Succeeded;
         }
